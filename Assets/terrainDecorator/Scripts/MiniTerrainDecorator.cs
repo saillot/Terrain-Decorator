@@ -1,12 +1,15 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using System.IO;
+using System.Threading.Tasks;
 //using System;
 
 public class MiniTerrainDecorator : MonoBehaviour
 {
+	private Coroutine decorateCoroutine;
+
 	
 	public enum FilterType {height, slope, painted, noise, texture, layer }
 	public enum BlendType {add, sub, mul,max,min }
@@ -436,7 +439,195 @@ public class MiniTerrainDecorator : MonoBehaviour
 		
 	}
 	public void Decorate() {
-		StartCoroutine(DecorateNow());
+
+		StartCoroutine(decoCoroutine());
+	}
+
+	private IEnumerator decoCoroutine()
+    {
+		while (decorateCoroutine != null)
+		{
+			yield return null;
+		}
+
+
+		decorateCoroutine = StartCoroutine(DecorateNow());
+	}
+
+	public async void DecorateNowAsync()
+    {
+#if UNITY_EDITOR
+
+		if (calculating)
+		{
+			//yield return new WaitForSeconds(0);
+			await System.Threading.Tasks.Task.Delay(0);
+		}
+		else
+			calculating = true;
+
+		float startTime = Time.realtimeSinceStartup;
+		alphamapWidth = t.terrainData.alphamapWidth;
+		alphamapHeight = t.terrainData.alphamapHeight;
+		heightMapWidth = t.terrainData.heightmapResolution;
+		heightMapHeight = t.terrainData.heightmapResolution;
+
+		textureLayerCount = t.terrainData.terrainLayers.Length;
+		if (clearTrees)
+			treePrototypeCount = t.terrainData.treePrototypes.Length;
+
+
+		if (!showProgress)
+			map = new float[alphamapWidth, alphamapHeight, t.terrainData.terrainLayers.Length];
+		if (map == null)
+			map = new float[alphamapWidth, alphamapHeight, t.terrainData.terrainLayers.Length];
+
+		float[,] heights = t.terrainData.GetHeights(0, 0, heightMapWidth, heightMapHeight);
+
+		if (clearTrees)
+			t.terrainData.treeInstances = new TreeInstance[0];
+
+		ProcessTextureFilters();
+
+		Random.InitState(42);
+
+
+
+
+
+		//Init
+		for (int layerNo = 0; layerNo < layers.Count; layerNo++)
+		{
+			layers[layerNo].activeRuleCount = 0;
+			layers[layerNo].debugResultWeight = 0;
+			layers[layerNo].resultWeight = 0;
+			layers[layerNo].correctedResultWeight = 0;
+			layers[layerNo].debugCorrectedResultWeight = 0;
+			layers[layerNo].treeCount = 0;
+			for (int i = 0; i < layers[layerNo].rules.Count; i++)
+			{
+				layers[layerNo].rules[i].debugWeight = 0f;
+				if (layers[layerNo].rules[i].active)
+					layers[layerNo].activeRuleCount++;
+				layers[layerNo].rules[i].weight = 0f;
+
+			}
+		}
+
+		for (int y = 0; y < t.terrainData.alphamapHeight; y++)
+		{
+
+			if (y % 50 == 0)
+			{
+				EditorUtility.DisplayProgressBar("Texture Rules", "Calculating Texture Rules ", Mathf.InverseLerp(0.0f, alphamapWidth, y));
+				if (showProgress)
+				{
+					calculatingPercent = Mathf.InverseLerp(0.0f, alphamapWidth, y);
+					t.terrainData.SetAlphamaps(0, 0, map);
+
+					//	yield return new WaitForSeconds(0.001f);
+					//yield return new WaitForSeconds(0);
+					await System.Threading.Tasks.Task.Delay(0);
+				}
+			}
+
+
+			for (int x = 0; x < t.terrainData.alphamapWidth; x++)
+			{
+
+
+				float normX = x * 1.0f / (alphamapWidth - 1);
+				float normY = y * 1.0f / (alphamapHeight - 1);
+				float[] weights = new float[textureLayerCount + treePrototypeCount];
+				float totalWeight = 0;
+
+				ProcessLayers(new Vector2(normX, normY), x, y);
+
+				float kalan = 1f;
+
+				for (int r = layers.Count - 1; r >= 0; r--)
+					if (layers[r].active)
+					{
+
+						if (layers[r].layerIndex < textureLayerCount)
+						{
+
+							layers[r].correctedResultWeight = layers[r].resultWeight * kalan;
+							kalan = kalan - layers[r].correctedResultWeight;
+
+						}
+						if (r < textureLayerCount + treePrototypeCount)
+							weights[layers[r].layerIndex] += layers[r].correctedResultWeight;
+					}
+
+
+
+
+
+				for (int i = 0; i < weights.Length; i++)
+					if (i < textureLayerCount)
+						totalWeight += weights[i];
+
+
+
+				int firstActiveTextureLayer = 0;
+				if (weights.Length > 0)
+					for (int layerNo = 0; layerNo < layers.Count; layerNo++)
+						if (layers[layerNo].active || layers[layerNo].layerIndex < textureLayerCount)
+
+						{
+							firstActiveTextureLayer = layers[layerNo].layerIndex;
+						}
+
+
+				if (firstActiveTextureLayer < weights.Length)
+					if (totalWeight < 1f)
+					{
+						weights[firstActiveTextureLayer] = 1f - totalWeight;
+						totalWeight = 1f;
+					}
+
+
+				for (int i = 0; i < textureLayerCount; i++)
+				{
+
+					map[x, y, i] = weights[i] / totalWeight;
+				}
+
+
+
+			} //y
+
+		} //x 
+
+
+		t.terrainData.SetAlphamaps(0, 0, map);
+
+
+
+
+
+
+
+
+		EditorUtility.ClearProgressBar();
+
+
+		t.Flush();
+
+
+		Debug.Log("Decorating Time:" + (Time.realtimeSinceStartup - startTime));
+
+
+
+		await System.Threading.Tasks.Task.Delay(0);
+		calculating = false;
+#else
+		await System.Threading.Tasks.Task.Delay(0);
+#endif
+
+
+		//decorateCoroutine = null;
 	}
 	
 	public 	IEnumerator DecorateNow() {
@@ -599,7 +790,10 @@ public class MiniTerrainDecorator : MonoBehaviour
 		calculating = false;
 #else
 		yield return new WaitForSeconds(0);
-		#endif
+#endif
+
+
+		decorateCoroutine = null;
 	}
 	
 	
