@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEditor;
 using UnityEditorInternal;
 using System.Collections.Generic;
@@ -483,11 +483,27 @@ public class MiniTerrainDecoratorEditor : Editor {
 		textureLayers = new string[layerCount];
 		for (int i = 0; i < layerCount; i++) 
 				textureLayers[i] =decorator.t.terrainData.terrainLayers[i].name;
-	
-		string buttonStr= "Decorate";
-		if ( decorator.calculating)
-			buttonStr= "Decorate %"+Mathf.FloorToInt(decorator.calculatingPercent*100).ToString();
-		if(GUILayout.Button(buttonStr)) {
+
+
+
+
+		string buttonStr2 = "Decorate Async";
+		if (decorator.calculating)
+			buttonStr2 = "Decorate %" + Mathf.FloorToInt(decorator.calculatingPercent * 100).ToString();
+
+		if (GUILayout.Button(buttonStr2))
+		{
+			if (!decorator.calculating)
+				decorator.DecorateNowAsync();
+
+
+		}
+
+
+		string buttonStr = "Decorate";
+		if (decorator.calculating)
+			buttonStr = "Decorate %" + Mathf.FloorToInt(decorator.calculatingPercent * 100).ToString();
+		if (GUILayout.Button(buttonStr)) {
 			if ( !decorator.calculating)
 				decorator.Decorate(); 
 				
